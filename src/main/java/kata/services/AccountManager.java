@@ -1,18 +1,18 @@
 package kata.services;
 
 import kata.model.StatementOperation;
+import org.springframework.stereotype.Service;
 
-import java.time.LocalDateTime;
 import java.util.List;
 
+
+@Service
 public interface AccountManager {
-    Number deposit(Number amount);
+    void deposit(Number amount);
 
-    Number withdraw(Number amount);
+    void withdraw(Number amount);
 
-    default List<StatementOperation> printStatement() {
-        return printStatement(null, null);
-    }
+    List<StatementOperation> printStatement();
 
-    List<StatementOperation> printStatement(LocalDateTime startDate, LocalDateTime endDate);
+    Number getBalance();
 }

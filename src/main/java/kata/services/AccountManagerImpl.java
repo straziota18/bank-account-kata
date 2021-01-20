@@ -2,35 +2,39 @@ package kata.services;
 
 import kata.exception.InsufficientFundsException;
 import kata.exception.InvalidOperationException;
+import kata.dao.DatabaseAccess;
 import kata.model.Operation;
+import kata.model.OperationType;
 import kata.model.StatementOperation;
+import org.springframework.beans.factory.annotation.Autowired;
 
-import java.time.LocalDateTime;
-import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 public class AccountManagerImpl implements AccountManager {
-    private final List<StatementOperation> operations = new ArrayList<>();
 
+    @Autowired
+    private DatabaseAccess databaseAccess;
+
+    @Override
     public Number getBalance() {
-        return operations.isEmpty() ? 0 : operations.get(operations.size() - 1).getBalanceAfterOperation();
+        return databaseAccess.getAllOperations()
+            .map(op -> op.getOperationType() == OperationType.DEPOSIT ? op.getAmount().doubleValue() : - op.getAmount().doubleValue())
+            .reduce(0.0, Double::sum);
     }
 
     @Override
-    public Number deposit(Number amount) {
+    public void deposit(Number amount) {
         if (amount.doubleValue() <= 0.0d) {
             throw new InvalidOperationException("Cannot deposit amount lower than 0");
         }
-        var result = getBalance();
-        StatementOperation newOperation = StatementOperation.from(Operation.deposit(amount),
-                result.doubleValue() + amount.doubleValue());
-        operations.add(newOperation);
-        return newOperation.getBalanceAfterOperation();
+        databaseAccess.addOperation(Operation.deposit(amount));
     }
 
     @Override
-    public Number withdraw(Number amount) {
+    public void withdraw(Number amount) {
         if (amount.doubleValue() <= 0.0d) {
             throw new InvalidOperationException("Cannot withdraw amount lower than 0");
         }
@@ -38,20 +42,17 @@ public class AccountManagerImpl implements AccountManager {
         if (result.doubleValue() - amount.doubleValue() < 0) {
             throw new InsufficientFundsException(String.format("Minimal value available for withdraw: %s", result));
         }
-        StatementOperation newOperation = StatementOperation.from(Operation.withdrawal(amount),
-                result.doubleValue() - amount.doubleValue());
-        operations.add(newOperation);
-        return newOperation.getBalanceAfterOperation();
+        databaseAccess.addOperation(Operation.withdrawal(amount));
     }
 
     @Override
-    public List<StatementOperation> printStatement(LocalDateTime startDate, LocalDateTime endDate) {
-        return operations.stream()
-                .filter(it -> {
-                    if (startDate != null && startDate.isAfter(it.getOperation().getDate())) {
-                        return false;
-                    }
-                    return endDate == null || !endDate.isBefore(it.getOperation().getDate());
+    public List<StatementOperation> printStatement() {
+        final var currentBalance = new AtomicReference<Number>(0.0);
+        return databaseAccess.getAllOperations()
+                .sorted(Comparator.comparing(Operation::getDate))
+                .map(it -> {
+                    currentBalance.getAndAccumulate(it.getAmount(), it.getOperationType().accumulator);
+                    return StatementOperation.from(it, currentBalance.get());
                 })
                 .collect(Collectors.toList());
     }
